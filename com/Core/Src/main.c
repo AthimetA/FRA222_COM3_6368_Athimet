@@ -32,6 +32,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define EEPROM_ADDR 0b10100000
+#define WAIT_ADDR 0x0A
+#define OPER_ADDR 0x1A
+#define ENDS_ADDR 0x3A
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,38 +44,56 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
- UART_HandleTypeDef huart2;
+ I2C_HandleTypeDef hi2c1;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
  // Robot
  typedef struct{
 	 // val 0-255
- 	int8_t WaitingTime;
- 	int8_t OperationTime ;
- 	int8_t DestinationStation ;
+ 	uint8_t WaitingTime;
+ 	uint8_t OperationTime ;
+ 	uint8_t WaitingTimeBuffer;
+ 	uint8_t OperationTimeBuffer ;
+ 	uint8_t StartStation ;
+ 	uint8_t EndStation ;
+ 	uint8_t EndStationBuffer ;
  }RobotManagement;
 
- RobotManagement Robot;
+ static RobotManagement Robot;
  // State Machine
- static enum {init,StanBy,ParamSetting,StantionChoosing,SPI} MCState = init;
+ static enum {init,StanBy,ParamSetting,StantionChoosing,EEpromWriteState,EEpromReadState} MCState = init;
+ static enum {UserChooseWhatToDo,WaitingTimeEdit,OperationTimeEdit} ParamEditState = UserChooseWhatToDo;
+ static enum {UserChooseStation,RobotOperating} StantionChoosingState = UserChooseStation;
  // UART PROTOCAL
  // Buffer
  char TxDataBuffer[64] =
  { 0 };
- char RxDataBuffer[32] =
+ // 1 key Only Program
+ char RxDataBuffer[2] =
  { -1 };
- // Flag
  int8_t flagUART = 0;
  int16_t inputchar;
+
+ // I2C
+ uint8_t eepromWriteFlag = 0;
+ uint8_t eepromReadFlag = 0;
+ uint8_t eepromDataReadBack[3];
+ uint16_t dataLen = 3 ;
+ static uint8_t Senddata[3] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void StateMachineManagment();
 int16_t UARTRecieveIT();
+void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd);
+void EEPROMReadFcn(uint8_t *Rdata, uint16_t len, uint16_t MemAd);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -108,16 +130,18 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_Delay(100);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
 	  StateMachineManagment();
+    /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -167,6 +191,40 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -241,24 +299,54 @@ void StateMachineManagment()
 	switch (MCState)
 	{
 		case init:
-			sprintf(TxDataBuffer, "\r\n---Program Start---\r\n Please Select Mode\r\n");
+			// Header
+			sprintf(TxDataBuffer, "\r\n---Program Start---\r\n");
 			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+			// Main
+			// State init
+			ParamEditState = UserChooseWhatToDo;
+			StantionChoosingState = UserChooseStation;
+			// Init Robot
+			Robot.WaitingTime = 0;
+			Robot.OperationTime = 0;
+			Robot.StartStation = 0;
+			Robot.EndStation = 0;
+			// EEPROM READ
+			eepromReadFlag = 1;
+			dataLen = 3;
+			EEPROMReadFcn(eepromDataReadBack,dataLen,WAIT_ADDR);
+			// Wait for Data
+			HAL_Delay(100);
+			// Wait for Data
+			Robot.WaitingTime = eepromDataReadBack[0];
+			Robot.OperationTime = eepromDataReadBack[1];
+			Robot.StartStation = eepromDataReadBack[2];
+			Robot.EndStation = eepromDataReadBack[2];
+			Robot.WaitingTimeBuffer = Robot.WaitingTime;
+			Robot.OperationTimeBuffer = Robot.OperationTime;
+			// End
 			flagUART = 0;
 			MCState = StanBy;
 			break;
 		case StanBy:
 			// Header
 			if(flagUART == 0){
-				sprintf(TxDataBuffer, "Please Select Mode\r\n");
+				sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\nPlease Select Mode\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				sprintf(TxDataBuffer, "\r\n+Type 1 for Robot Parameter Setting\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				sprintf(TxDataBuffer, "\r\n+Type 2 for Choosing Destination Station\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n+Type 3 for EEPROM READ\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				flagUART = 1;
 			}
 			// Main
-			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 32);
+			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
 			inputchar = UARTRecieveIT();
 			if(inputchar!=-1)
 			{
@@ -272,18 +360,271 @@ void StateMachineManagment()
 					flagUART = 0;
 					MCState = StantionChoosing;
 				}
+				else if(inputchar == '3')
+				{
+					flagUART = 0;
+					MCState = EEpromReadState;
+				}
+				else if(inputchar == '4')
+				{
+					flagUART = 0;
+					MCState = EEpromWriteState;
+				}
 				else
 				{
 					flagUART = 0;
-					sprintf(TxDataBuffer, "---Wrong Command---\r\n");
+					sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
 					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				}
 			}
 			break;
+		case EEpromReadState:
+			eepromReadFlag = 1;
+			EEPROMReadFcn(eepromDataReadBack,dataLen,WAIT_ADDR);
+			flagUART = 0;
+			MCState = StanBy;
+			break;
+		case EEpromWriteState:
+			eepromWriteFlag = 1;
+			Senddata[0] = Robot.WaitingTime;
+			Senddata[1] = Robot.OperationTime;
+			Senddata[2] = Robot.EndStation;
+			EEPROMWriteFcn(Senddata, dataLen, WAIT_ADDR);
+			flagUART = 0;
+			MCState = StanBy;
+			break;
 		case ParamSetting:
+			// Sub-state
+			switch (ParamEditState)
+			{
+				case UserChooseWhatToDo:
+					// Header
+					if(flagUART == 0){
+						sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\nPlease Select Parameter to edit\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\nRobot Status WaitingTime:[%d] OperationTime[%d]", Robot.WaitingTimeBuffer, Robot.OperationTimeBuffer);
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n+Type 1 for WaitingTime Edit\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type 2 for OperationTime Edit\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type s to save\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type x to cancel\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+					}
+					// Main
+					HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+					inputchar = UARTRecieveIT();
+					if(inputchar!=-1)
+					{
+						if(inputchar == 'x')
+						{
+							Robot.WaitingTimeBuffer = Robot.WaitingTime;
+							Robot.OperationTimeBuffer = Robot.OperationTime;
+							flagUART = 0;
+							MCState = StanBy;
+						}
+						else if(inputchar == '1')
+						{
+							flagUART = 0;
+							ParamEditState = WaitingTimeEdit;
+						}
+						else if(inputchar == '2')
+						{
+							flagUART = 0;
+							ParamEditState = OperationTimeEdit;
+						}
+						else if(inputchar == 's')
+						{
+							Robot.WaitingTime = Robot.WaitingTimeBuffer;
+							Robot.OperationTime = Robot.OperationTimeBuffer;
+							eepromWriteFlag = 1;
+							Senddata[0] = Robot.WaitingTime;
+							Senddata[1] = Robot.OperationTime;
+							Senddata[2] = Robot.EndStation;
+							EEPROMWriteFcn(Senddata, dataLen, WAIT_ADDR);
+							flagUART = 0;
+							MCState = StanBy;
+						}
+						else
+						{
+							flagUART = 0;
+							sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+					}
+					break;
+				case WaitingTimeEdit:
+					// Header
+					if(flagUART == 0){
+						sprintf(TxDataBuffer, "\r\n---WaitingTime Edit---\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type + for +1 second\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type - for -1 second\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type x to back\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+					}
+					// Main
+					HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+					inputchar = UARTRecieveIT();
+					if(inputchar!=-1)
+					{
+						if(inputchar == 'x')
+						{
+							flagUART = 0;
+							ParamEditState = UserChooseWhatToDo;
+						}
+						else if(inputchar == '+')
+						{
+							Robot.WaitingTimeBuffer++;
+							sprintf(TxDataBuffer, "Current WaitingTime:[%d]\r\n", Robot.WaitingTimeBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else if(inputchar == '-')
+						{
+							Robot.WaitingTimeBuffer--;
+							sprintf(TxDataBuffer, "Current WaitingTime:[%d]\r\n", Robot.WaitingTimeBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else
+						{
+							flagUART = 0;
+							sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+					}
+					break;
+				case OperationTimeEdit:
+					// Header
+					if(flagUART == 0){
+						sprintf(TxDataBuffer, "\r\n---OperationTime Edit---\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type + for +1 second\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type - for -1 second\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type x to back\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+					}
+					// Main
+					HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+					inputchar = UARTRecieveIT();
+					if(inputchar!=-1)
+					{
+						if(inputchar == 'x')
+						{
+							flagUART = 0;
+							ParamEditState = UserChooseWhatToDo;
+						}
+						else if(inputchar == '+')
+						{
+							Robot.OperationTimeBuffer++;
+							sprintf(TxDataBuffer, "Current OperationTimeEdit:[%d]\r\n", Robot.OperationTimeBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else if(inputchar == '-')
+						{
+							Robot.OperationTimeBuffer--;
+							sprintf(TxDataBuffer, "Current OperationTimeEdit:[%d]\r\n", Robot.OperationTimeBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else
+						{
+							flagUART = 0;
+							sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+					}
+					break;
+			}
 			break;
 		case StantionChoosing:
+			// Header
+			if(flagUART == 0){
+				sprintf(TxDataBuffer, "\r\nPlease Select Destination Station\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\nRobot Status WaitingTime:[%d] OperationTime[%d]", Robot.WaitingTimeBuffer, Robot.OperationTimeBuffer);
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "+Type + for +1 Station\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "+Type - for -1 Station\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n+Type x to cancel\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n+Type g to Start Operating\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				flagUART = 1;
+			}
+			// Main
+			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+			// Main
+			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+			inputchar = UARTRecieveIT();
+			if(inputchar!=-1)
+			{
+				if(inputchar == 'x')
+				{
+					Robot.EndStationBuffer = Robot.EndStation;
+					flagUART = 0;
+					ParamEditState = UserChooseWhatToDo;
+				}
+				else if(inputchar == '+')
+				{
+					Robot.EndStationBuffer++;
+					Robot.EndStationBuffer %= 16;
+					sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
+					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				}
+				else if(inputchar == '-')
+				{
+					Robot.EndStationBuffer--;
+					Robot.EndStationBuffer %= 16;
+					sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
+					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				}
+				else if(inputchar == 'g')
+				{
+					flagUART = 0;
+					Robot.EndStation = Robot.EndStationBuffer;
+					MCState = StanBy;
+				}
+				else
+				{
+					flagUART = 0;
+					sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
+					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				}
+			}
 			break;
+	}
+}
+
+void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd) {
+	if (eepromWriteFlag && hi2c1.State == HAL_I2C_STATE_READY) {
+		HAL_I2C_Mem_Write_IT(&hi2c1, EEPROM_ADDR, MemAd, I2C_MEMADD_SIZE_16BIT,
+				Wdata, len);
+		eepromWriteFlag = 0;
+	}
+}
+void EEPROMReadFcn(uint8_t *Rdata, uint16_t len, uint16_t MemAd) {
+	if (eepromReadFlag && hi2c1.State == HAL_I2C_STATE_READY) {
+		HAL_I2C_Mem_Read_IT(&hi2c1, EEPROM_ADDR, MemAd, I2C_MEMADD_SIZE_16BIT,
+				Rdata, len);
+		eepromReadFlag = 0;
 	}
 }
 
@@ -297,6 +638,11 @@ int16_t UARTRecieveIT()
 		dataPos= (dataPos+1)%huart2.RxXferSize;
 	}
 	return data;
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+//	sprintf(TxDataBuffer, "Received:[%s]\r\n", RxDataBuffer);
+//	HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 }
 /* USER CODE END 4 */
 
