@@ -48,19 +48,24 @@
 
 SPI_HandleTypeDef hspi3;
 
+TIM_HandleTypeDef htim11;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+// System time
+uint64_t _micro = 0;
+uint64_t timestampOpration = 0;
  // Robot
  typedef struct{
 	 // val 0-255
 	uint8_t WaitingTimeBuffer;
 	uint8_t OperationTimeBuffer ;
 	uint8_t EndStationBuffer ;
- 	uint8_t StartStation ;
  	uint8_t WaitingTime;
  	uint8_t OperationTime ;
  	uint8_t EndStation ;
+ 	uint8_t StartStation ;
 
  }RobotManagement;
 
@@ -68,7 +73,7 @@ UART_HandleTypeDef huart2;
  // State Machine
  static enum {init,StanBy,ParamSetting,StantionChoosing,EEpromWriteState,EEpromReadState} MCState = init;
  static enum {UserChooseWhatToDo,WaitingTimeEdit,OperationTimeEdit} ParamEditState = UserChooseWhatToDo;
- static enum {UserChooseStation,EEpromWriteState4ROBOT,RobotOperating} StantionChoosingState = UserChooseStation;
+ static enum {UserChooseStation,EEpromWriteState4ROBOT,RobotOperatingPart1,RobotOperatingPart2} StantionChoosingState = UserChooseStation;
  // UART PROTOCAL
  // Buffer
  char TxDataBuffer[64] =
@@ -99,7 +104,9 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI3_Init(void);
+static void MX_TIM11_Init(void);
 /* USER CODE BEGIN PFP */
+uint64_t micros();
 void StateMachineManagment();
 int16_t UARTRecieveIT();
 void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd);
@@ -144,9 +151,11 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_SPI3_Init();
+  MX_TIM11_Init();
   /* USER CODE BEGIN 2 */
   HAL_Delay(500);
   MCP23017SetInit();
+  HAL_TIM_Base_Start_IT(&htim11);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -276,6 +285,37 @@ static void MX_SPI3_Init(void)
   /* USER CODE BEGIN SPI3_Init 2 */
 
   /* USER CODE END SPI3_Init 2 */
+
+}
+
+/**
+  * @brief TIM11 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM11_Init(void)
+{
+
+  /* USER CODE BEGIN TIM11_Init 0 */
+
+  /* USER CODE END TIM11_Init 0 */
+
+  /* USER CODE BEGIN TIM11_Init 1 */
+
+  /* USER CODE END TIM11_Init 1 */
+  htim11.Instance = TIM11;
+  htim11.Init.Prescaler = 99;
+  htim11.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim11.Init.Period = 65535;
+  htim11.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim11.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim11) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM11_Init 2 */
+
+  /* USER CODE END TIM11_Init 2 */
 
 }
 
@@ -694,11 +734,43 @@ void StateMachineManagment()
 					Senddata[2] = Robot.EndStation;
 					EEPROMWriteFcn(Senddata, dataLen, WAIT_ADDR);
 					flagUART = 0;
-					StantionChoosingState = RobotOperating;
+					StantionChoosingState = RobotOperatingPart1;
 					break;
-				case RobotOperating:
-					// SPI
-					StantionChoosingState = UserChooseStation;
+				case RobotOperatingPart1:
+					if(flagUART == 0)
+					{
+						sprintf(TxDataBuffer, "\r\n-----Robot is Operating(1)-----\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+						// SPI
+						timestampOpration = micros();
+						MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,~Robot.StartStation);
+					}
+					if (micros() - timestampOpration > Robot.WaitingTime*1000000)
+					{
+						flagUART = 0;
+						StantionChoosingState = RobotOperatingPart2;
+					}
+
+					break;
+				case RobotOperatingPart2:
+					if(flagUART == 0)
+					{
+						sprintf(TxDataBuffer, "\r\n-----Robot is Operating(2)-----\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+						// SPI
+						timestampOpration = micros();
+						MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,~Robot.EndStation);
+					}
+					if (micros() - timestampOpration > Robot.OperationTime*1000000)
+					{
+						Robot.StartStation = Robot.EndStation;
+						flagUART = 0;
+						MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,0xFF);
+						StantionChoosingState = UserChooseStation;
+					}
+
 					break;
 			}
 			break;
@@ -767,6 +839,17 @@ int16_t UARTRecieveIT()
 	}
 	return data;
 }
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim == &htim11) {
+		_micro += 65535;
+	}
+}
+
+uint64_t micros() {
+	return _micro + htim11.Instance->CNT;
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 //	sprintf(TxDataBuffer, "Received:[%s]\r\n", RxDataBuffer);
