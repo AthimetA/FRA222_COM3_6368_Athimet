@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +43,26 @@
  UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+ // Robot
+ typedef struct{
+	 // val 0-255
+ 	int8_t WaitingTime;
+ 	int8_t OperationTime ;
+ 	int8_t DestinationStation ;
+ }RobotManagement;
 
+ RobotManagement Robot;
+ // State Machine
+ static enum {init,StanBy,ParamSetting,StantionChoosing,SPI} MCState = init;
+ // UART PROTOCAL
+ // Buffer
+ char TxDataBuffer[64] =
+ { 0 };
+ char RxDataBuffer[32] =
+ { -1 };
+ // Flag
+ int8_t flagUART = 0;
+ int16_t inputchar;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -50,7 +70,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+void StateMachineManagment();
+int16_t UARTRecieveIT();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -96,7 +117,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+	  StateMachineManagment();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -124,9 +145,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 16;
-  RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -142,7 +163,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -164,7 +185,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 9600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -215,7 +236,68 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void StateMachineManagment()
+{
+	switch (MCState)
+	{
+		case init:
+			sprintf(TxDataBuffer, "\r\n---Program Start---\r\n Please Select Mode\r\n");
+			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+			flagUART = 0;
+			MCState = StanBy;
+			break;
+		case StanBy:
+			// Header
+			if(flagUART == 0){
+				sprintf(TxDataBuffer, "Please Select Mode\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n+Type 1 for Robot Parameter Setting\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n+Type 2 for Choosing Destination Station\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				flagUART = 1;
+			}
+			// Main
+			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 32);
+			inputchar = UARTRecieveIT();
+			if(inputchar!=-1)
+			{
+				if(inputchar == '1')
+				{
+					flagUART = 0;
+					MCState = ParamSetting;
+				}
+				else if(inputchar == '2')
+				{
+					flagUART = 0;
+					MCState = StantionChoosing;
+				}
+				else
+				{
+					flagUART = 0;
+					sprintf(TxDataBuffer, "---Wrong Command---\r\n");
+					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				}
+			}
+			break;
+		case ParamSetting:
+			break;
+		case StantionChoosing:
+			break;
+	}
+}
 
+int16_t UARTRecieveIT()
+{
+	static uint32_t dataPos =0;
+	int16_t data=-1;
+	if(huart2.RxXferSize - huart2.RxXferCount!=dataPos)
+	{
+		data=RxDataBuffer[dataPos];
+		dataPos= (dataPos+1)%huart2.RxXferSize;
+	}
+	return data;
+}
 /* USER CODE END 4 */
 
 /**
