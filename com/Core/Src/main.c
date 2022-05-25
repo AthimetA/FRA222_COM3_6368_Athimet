@@ -66,7 +66,7 @@ UART_HandleTypeDef huart2;
  // State Machine
  static enum {init,StanBy,ParamSetting,StantionChoosing,EEpromWriteState,EEpromReadState} MCState = init;
  static enum {UserChooseWhatToDo,WaitingTimeEdit,OperationTimeEdit} ParamEditState = UserChooseWhatToDo;
- static enum {UserChooseStation,RobotOperating} StantionChoosingState = UserChooseStation;
+ static enum {UserChooseStation,EEpromWriteState4ROBOT,RobotOperating} StantionChoosingState = UserChooseStation;
  // UART PROTOCAL
  // Buffer
  char TxDataBuffer[64] =
@@ -553,63 +553,82 @@ void StateMachineManagment()
 			}
 			break;
 		case StantionChoosing:
-			// Header
-			if(flagUART == 0){
-				sprintf(TxDataBuffer, "\r\nPlease Select Destination Station\r\n");
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "\r\nRobot Status WaitingTime:[%d] OperationTime[%d]", Robot.WaitingTimeBuffer, Robot.OperationTimeBuffer);
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "+Type + for +1 Station\r\n");
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "+Type - for -1 Station\r\n");
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "\r\n+Type x to cancel\r\n");
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "\r\n+Type g to Start Operating\r\n");
-				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				flagUART = 1;
-			}
-			// Main
-			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
-			// Main
-			HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
-			inputchar = UARTRecieveIT();
-			if(inputchar!=-1)
+			switch (StantionChoosingState)
 			{
-				if(inputchar == 'x')
-				{
-					Robot.EndStationBuffer = Robot.EndStation;
+				case UserChooseStation:
+					// Header
+					if(flagUART == 0)
+					{
+						sprintf(TxDataBuffer, "\r\nPlease Select Destination Station\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\nRobot Status WaitingTime:[%d] OperationTime[%d]", Robot.WaitingTimeBuffer, Robot.OperationTimeBuffer);
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type + for +1 Station\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "+Type - for -1 Station\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n+Type x to cancel\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n+Type g to Start Operating\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						flagUART = 1;
+					}
+					// Main
+					HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+					// Main
+					HAL_UART_Receive_IT(&huart2,  (uint8_t*)RxDataBuffer, 2);
+					inputchar = UARTRecieveIT();
+					if(inputchar!=-1)
+					{
+						if(inputchar == 'x')
+						{
+							Robot.EndStationBuffer = Robot.EndStation;
+							flagUART = 0;
+							MCState = StanBy;
+						}
+						else if(inputchar == '+')
+						{
+							Robot.EndStationBuffer++;
+							Robot.EndStationBuffer %= 16;
+							sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else if(inputchar == '-')
+						{
+							Robot.EndStationBuffer--;
+							Robot.EndStationBuffer %= 16;
+							sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+						else if(inputchar == 'g')
+						{
+							Robot.EndStation = Robot.EndStationBuffer;
+							flagUART = 0;
+							StantionChoosingState = EEpromWriteState4ROBOT;
+						}
+						else
+						{
+							flagUART = 0;
+							sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
+							HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						}
+					}
+					break;
+				case EEpromWriteState4ROBOT:
+					eepromWriteFlag = 1;
+					Senddata[0] = Robot.WaitingTime;
+					Senddata[1] = Robot.OperationTime;
+					Senddata[2] = Robot.EndStation;
+					EEPROMWriteFcn(Senddata, dataLen, WAIT_ADDR);
 					flagUART = 0;
-					ParamEditState = UserChooseWhatToDo;
-				}
-				else if(inputchar == '+')
-				{
-					Robot.EndStationBuffer++;
-					Robot.EndStationBuffer %= 16;
-					sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
-					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				}
-				else if(inputchar == '-')
-				{
-					Robot.EndStationBuffer--;
-					Robot.EndStationBuffer %= 16;
-					sprintf(TxDataBuffer, "Current End Station:[%d]\r\n", Robot.EndStationBuffer);
-					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				}
-				else if(inputchar == 'g')
-				{
-					Robot.EndStation = Robot.EndStationBuffer;
-					flagUART = 0;
-					MCState = EEpromWriteState;
-				}
-				else
-				{
-					flagUART = 0;
-					sprintf(TxDataBuffer, "\r\n---Wrong Command---\r\n");
-					HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				}
+					StantionChoosingState = RobotOperating;
+					break;
+				case RobotOperating:
+					// SPI
+					StantionChoosingState = UserChooseStation;
+					break;
 			}
 			break;
 	}
