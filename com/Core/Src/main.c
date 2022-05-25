@@ -725,8 +725,8 @@ void MCP23017SetInit()
 	// ADRR = 0b 0000 0000 (IODIRA)
 	static uint8_t Setting[0x3] = {
 			0x40, // OP+ADDR
-			0x01, // IODIRB USE SET AS OUTPUT 0b 0000 0000
-			0x00, // OLATB Led 0110 0w0 tam dia law 0w0
+			0x01, // IODIRB
+			0x00, //  USE SET AS OUTPUT 0b 0000 0000 tam dia law 0w0
 
 	};
 	HAL_GPIO_WritePin(SPI_SS_GPIO_Port, SPI_SS_Pin, GPIO_PIN_RESET);
