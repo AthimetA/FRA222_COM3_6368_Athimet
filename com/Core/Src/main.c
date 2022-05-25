@@ -406,7 +406,7 @@ void StateMachineManagment()
 			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 			// Main
 			// SET PSI
-			MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,0b11001110);
+			MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,0xFF);
 			// State init
 			ParamEditState = UserChooseWhatToDo;
 			StantionChoosingState = UserChooseStation;
@@ -440,11 +440,15 @@ void StateMachineManagment()
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				sprintf(TxDataBuffer, "\r\nPlease Select Mode\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\nRobot Status WaitingTime:[%d] OperationTime[%d]", Robot.WaitingTimeBuffer, Robot.OperationTimeBuffer);
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				sprintf(TxDataBuffer, "\r\n+Type 1 for Robot Parameter Setting\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "\r\n+Type 2 for Choosing Destination Station\r\n");
+				sprintf(TxDataBuffer, "+Type 2 for Choosing Destination Station\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-				sprintf(TxDataBuffer, "\r\n+Type 3 for EEPROM READ\r\n");
+				sprintf(TxDataBuffer, "+Type 3 for EEPROM READ\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 				sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
@@ -470,19 +474,6 @@ void StateMachineManagment()
 					flagUART = 0;
 					MCState = EEpromReadState;
 				}
-				else if(inputchar == '4')
-				{
-					flagUART = 0;
-					MCState = EEpromWriteState;
-				}
-//				else if(inputchar == '9')
-//				{
-//					MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,Robot.EndStation);
-//				}
-//				else if(inputchar == '7')
-//				{
-//					MCP23017SetInit();
-//				}
 				else
 				{
 					flagUART = 0;
@@ -492,8 +483,23 @@ void StateMachineManagment()
 			}
 			break;
 		case EEpromReadState:
+			// Header
+			if(flagUART == 0){
+				sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\nEEPROM is Operating\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+				flagUART = 1;
+			}
 			eepromReadFlag = 1;
 			EEPROMReadFcn(eepromDataReadBack,dataLen,WAIT_ADDR);
+			HAL_Delay(100);
+			sprintf(TxDataBuffer, "\r\nWaitingTime:[%d] OperationTime[%d] EndStation[%d]", eepromDataReadBack[0], eepromDataReadBack[1],eepromDataReadBack[2]);
+			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+			sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
+			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 			flagUART = 0;
 			MCState = StanBy;
 			break;
@@ -586,6 +592,8 @@ void StateMachineManagment()
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						sprintf(TxDataBuffer, "+Type x to back\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n----------------------\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						flagUART = 1;
 					}
 					// Main
@@ -628,6 +636,8 @@ void StateMachineManagment()
 						sprintf(TxDataBuffer, "+Type - for -1 second\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						sprintf(TxDataBuffer, "+Type x to back\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n----------------------\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						flagUART = 1;
 					}
@@ -676,13 +686,15 @@ void StateMachineManagment()
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						sprintf(TxDataBuffer, " Start Station:[%d] End Station[%d]\r\n", Robot.StartStation, Robot.EndStation);
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-						sprintf(TxDataBuffer, "+Type + for +1 Station\r\n");
+						sprintf(TxDataBuffer, "\r\n+Type + for +1 Station\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						sprintf(TxDataBuffer, "+Type - for -1 Station\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-						sprintf(TxDataBuffer, "\r\n+Type x to cancel\r\n");
+						sprintf(TxDataBuffer, "+Type x to cancel\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
-						sprintf(TxDataBuffer, "\r\n+Type g to Start Operating\r\n");
+						sprintf(TxDataBuffer, "+Type g to Start Operating\r\n");
+						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
+						sprintf(TxDataBuffer, "\r\n---------------------------\r\n");
 						HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 						flagUART = 1;
 					}
