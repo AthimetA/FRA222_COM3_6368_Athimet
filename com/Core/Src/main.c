@@ -88,7 +88,9 @@ UART_HandleTypeDef huart2;
 
  // SPI
  // ADDR 0b 0100 0000
- uint8_t MCP23S17_OP = 0x41;
+ uint8_t MCP23S17_OP = 0x40;
+ uint8_t MCP23S17_GPIOA_ADDR = 0x15;
+ static uint8_t OutputPacket[0x3];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -143,7 +145,8 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
-  HAL_Delay(100);
+  HAL_Delay(500);
+  MCP23017SetInit();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -261,7 +264,7 @@ static void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -362,6 +365,8 @@ void StateMachineManagment()
 			sprintf(TxDataBuffer, "\r\n---Program Start---\r\n");
 			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer), 1000);
 			// Main
+			// SET PSI
+			MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,0b11001110);
 			// State init
 			ParamEditState = UserChooseWhatToDo;
 			StantionChoosingState = UserChooseStation;
@@ -430,6 +435,14 @@ void StateMachineManagment()
 					flagUART = 0;
 					MCState = EEpromWriteState;
 				}
+//				else if(inputchar == '9')
+//				{
+//					MCP23017SetOutput(MCP23S17_OP,MCP23S17_GPIOA_ADDR,Robot.EndStation);
+//				}
+//				else if(inputchar == '7')
+//				{
+//					MCP23017SetInit();
+//				}
 				else
 				{
 					flagUART = 0;
@@ -694,47 +707,30 @@ void StateMachineManagment()
 
 void MCP23017SetOutput(uint8_t OP, uint8_t ADDR, uint8_t Data)
 {
-	// OP = 0b 0100 0000 (Write)
-	// ADRR = 0b 0000 0000 (0-22 Port)
-	// Data = 0b 0000 0000
-	// OutputPacket = 0b 0100 0001 | 0000 0000 | 0000 0000
-	uint32_t OutputPacket = (DACOutput & 0x0fff) | ((Config & 0xf) << 12);
+//	 OP = 0b 0100 0000 (Write)
+//	 ADRR = 0b 0000 0000 (0-22 Port)
+//	 Data = 0b 0000 0000
+//	 OutputPacket = 0b 0100 0000 | 0001 0100 | 0000 0000
+	OutputPacket[0] = OP;
+	OutputPacket[1] = ADDR;
+	OutputPacket[2] = Data;
+
 	HAL_GPIO_WritePin(SPI_SS_GPIO_Port, SPI_SS_Pin, GPIO_PIN_RESET);
-	HAL_SPI_Transmit_IT(&hspi3, &OutputPacket, 1);
+	HAL_SPI_Transmit_IT(&hspi3, OutputPacket, 0x3);
 }
 
 void MCP23017SetInit()
 {
 	// OP = 0b 0100 0001 (Write)
 	// ADRR = 0b 0000 0000 (IODIRA)
-	static uint8_t Setting[0x18] = {
-			0x41, // OP+ADDR
-			0x00, // IODIRA
-			0x00, // IODIRB USE SET AS OUTPUT 0b 0000 XXXX
-			0x00, // IPOLA
-			0x00, // IPOLB
-			0x00, // GPINERNA
-			0x00, // GPINERNB
-			0x00, // DEFVALA
-			0x00, // DEFVALB
-			0x00, // INTCONA
-			0x00, // INTCONB
-			0x00, // IOCON
-			0xFF, // IOCON
-			0x00, // GPPUA
-			0x00, // GPPUB
-			0x00, // INTFA
-			0x00, // INTFB
-			0x00, // INTCAPA
-			0x00, // INTCAPB
-			0x00, // GPIOA
-			0x00, // GPIOB
-			0x00, // OLATA
-			0x00, // OLATB
+	static uint8_t Setting[0x3] = {
+			0x40, // OP+ADDR
+			0x01, // IODIRB USE SET AS OUTPUT 0b 0000 0000
+			0x00, // OLATB Led 0110 0w0 tam dia law 0w0
+
 	};
-	uint32_t OutputPacket = ((MCP23S17_OP & 0xf) << 12) | ((0x00 & 0xf) << 8) | (MCP23S17_OP & 0x0fff);
 	HAL_GPIO_WritePin(SPI_SS_GPIO_Port, SPI_SS_Pin, GPIO_PIN_RESET);
-	HAL_SPI_Transmit_IT(&hspi3, &OutputPacket, 1);
+	HAL_SPI_Transmit_IT(&hspi3, Setting, 0x3);
 }
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
