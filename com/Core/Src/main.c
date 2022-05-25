@@ -52,13 +52,14 @@ UART_HandleTypeDef huart2;
  // Robot
  typedef struct{
 	 // val 0-255
+	uint8_t WaitingTimeBuffer;
+	uint8_t OperationTimeBuffer ;
+	uint8_t EndStationBuffer ;
+ 	uint8_t StartStation ;
  	uint8_t WaitingTime;
  	uint8_t OperationTime ;
- 	uint8_t WaitingTimeBuffer;
- 	uint8_t OperationTimeBuffer ;
- 	uint8_t StartStation ;
  	uint8_t EndStation ;
- 	uint8_t EndStationBuffer ;
+
  }RobotManagement;
 
  static RobotManagement Robot;
@@ -324,6 +325,7 @@ void StateMachineManagment()
 			Robot.EndStation = eepromDataReadBack[2];
 			Robot.WaitingTimeBuffer = Robot.WaitingTime;
 			Robot.OperationTimeBuffer = Robot.OperationTime;
+			Robot.EndStationBuffer = Robot.EndStation;
 			// End
 			flagUART = 0;
 			MCState = StanBy;
@@ -598,9 +600,9 @@ void StateMachineManagment()
 				}
 				else if(inputchar == 'g')
 				{
-					flagUART = 0;
 					Robot.EndStation = Robot.EndStationBuffer;
-					MCState = StanBy;
+					flagUART = 0;
+					MCState = EEpromWriteState;
 				}
 				else
 				{
