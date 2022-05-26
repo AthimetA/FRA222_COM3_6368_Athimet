@@ -107,6 +107,7 @@ uint64_t timestampOpration = 0;
  uint16_t ADCin = 0;
  uint16_t Temp100Sec[100] = {0};
  uint8_t TempPos = 0;
+ uint16_t Currenttemp =0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -382,7 +383,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 9999;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 10000;
+  htim3.Init.Period = 9999;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -999,6 +1000,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 uint64_t micros() {
 	return _micro + htim11.Instance->CNT;
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+	//（ Unit is °C）= {(V SENSE — V 25 ) / Avg_Slope} + 25
+	Currenttemp = ((ADCin* (3.3 / 4096)- 0.76)/ 0.0025) + 25;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
