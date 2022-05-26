@@ -116,7 +116,7 @@ uint64_t timestampOpration = 0;
  // InputCap
  uint32_t DMAdatabuffer[CAPTURENUM] = {0};
  // Diff time
- uint32_t DiffTime[CAPTURENUM-1] = {0};
+ uint32_t DMATime[CAPTURENUM-1] = {0};
  // Mean time
  float AvgCPS = 0, Meantime = 0;
 
@@ -209,6 +209,7 @@ int main(void)
 			timestampCps = micros();
 			CPSReaderCycle();
 		}
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1102,10 +1103,10 @@ void CPSReaderCycle() {
 	//calculate diff from all buffer except current dma
 	for(register int i=2 ;i < CAPTURENUM-1;i++)
 	{
-//		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM]-DMAdatabuffer[(CapPos+i)%CAPTURENUM];
-		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM];
+//		DMATime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM]-DMAdatabuffer[(CapPos+i)%CAPTURENUM];
+		DMATime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM];
 		//Sum all  Diff
-		sum += DiffTime[i];
+		sum += DMATime[i];
 	}
 
 	//mean all Diff
