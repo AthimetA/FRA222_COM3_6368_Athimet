@@ -1108,7 +1108,7 @@ void CPSReaderCycle() {
 	Meantime = sum / 10;
 
 	//CPS
-	AvgCPS = (60/Meantime)*1000;
+	AvgCPS = (60/Meantime)*10000;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)

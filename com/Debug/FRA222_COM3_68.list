@@ -4482,7 +4482,7 @@ void CPSReaderCycle() {
  80025ee:	edc3 7a00 	vstr	s15, [r3]
 
 	//CPS
-	AvgCPS = (60/Meantime)*1000;
+	AvgCPS = (60/Meantime)*10000;
  80025f2:	4b0e      	ldr	r3, [pc, #56]	; (800262c <CPSReaderCycle+0xa8>)
  80025f4:	ed93 7a00 	vldr	s14, [r3]
  80025f8:	eddf 6a0d 	vldr	s13, [pc, #52]	; 8002630 <CPSReaderCycle+0xac>
@@ -4504,7 +4504,7 @@ void CPSReaderCycle() {
  8002628:	cccccccd 	.word	0xcccccccd
  800262c:	20000518 	.word	0x20000518
  8002630:	42700000 	.word	0x42700000
- 8002634:	447a0000 	.word	0x447a0000
+ 8002634:	461c4000 	.word	0x461c4000
  8002638:	20000514 	.word	0x20000514
 
 0800263c <HAL_UART_RxCpltCallback>:
