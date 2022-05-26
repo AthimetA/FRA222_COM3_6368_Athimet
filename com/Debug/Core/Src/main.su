@@ -20,5 +20,5 @@
 ../Core/Src/main.c:1083:10:micros	12	static
 ../Core/Src/main.c:1087:6:HAL_ADC_ConvCpltCallback	16	static
 ../Core/Src/main.c:1093:6:CPSReaderCycle	16	static
-../Core/Src/main.c:1113:6:HAL_UART_RxCpltCallback	16	static
-../Core/Src/main.c:1124:6:Error_Handler	4	static,ignoring_inline_asm
+../Core/Src/main.c:1114:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/main.c:1125:6:Error_Handler	4	static,ignoring_inline_asm

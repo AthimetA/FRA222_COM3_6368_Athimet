@@ -1098,16 +1098,17 @@ void CPSReaderCycle() {
 	//calculate diff from all buffer except current dma
 	for(register int i=2 ;i < CAPTURENUM-1;i++)
 	{
-		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM]-DMAdatabuffer[(CapPos+i)%CAPTURENUM];
+//		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM]-DMAdatabuffer[(CapPos+i)%CAPTURENUM];
+		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM];
 		//Sum all  Diff
 		sum += DiffTime[i];
 	}
 
 	//mean all Diff
-	Meantime = sum / (float)(CAPTURENUM-3);
+	Meantime = sum / 10;
 
 	//CPS
-	AvgCPS = (60/Meantime)/1000;
+	AvgCPS = (60/Meantime)*1000;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
