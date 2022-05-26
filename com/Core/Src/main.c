@@ -202,6 +202,7 @@ int main(void)
   while (1)
   {
 	  StateMachineManagment();
+//	  CPSReaderCycle();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1074,7 +1075,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		Temp100Sec[TempPos] = ADCin;
 		TempPos++;
 		TempPos %=100;
-		CPSReaderCycle();
 	}
 }
 
