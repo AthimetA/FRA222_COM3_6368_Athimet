@@ -38,6 +38,7 @@
 #define WAIT_ADDR 0x0A
 #define OPER_ADDR 0x1A
 #define ENDS_ADDR 0x3A
+#define CAPTURENUM 13
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,8 +54,10 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi3;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim11;
+DMA_HandleTypeDef hdma_tim2_ch1;
 
 UART_HandleTypeDef huart2;
 
@@ -103,11 +106,19 @@ uint64_t timestampOpration = 0;
  uint8_t MCP23S17_GPIOA_ADDR = 0x15;
  static uint8_t OutputPacket[0x3];
 
- // ADC
+ // ADC Temp
  uint16_t ADCin = 0;
  uint16_t Temp100Sec[100] = {0};
  uint8_t TempPos = 0;
  uint16_t Currenttemp =0;
+
+ // InputCap
+ uint32_t DMAdatabuffer[CAPTURENUM] = {0};
+ // Diff time
+ uint32_t DiffTime[CAPTURENUM-1] = {0};
+ // Mean time
+ float AvgCPS = 0, Meantime = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +131,7 @@ static void MX_TIM3_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM11_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 uint64_t micros();
 void StateMachineManagment();
@@ -128,6 +140,7 @@ void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd);
 void EEPROMReadFcn(uint8_t *Rdata, uint16_t len, uint16_t MemAd);
 void MCP23017SetOutput(uint8_t OP, uint8_t ADDR, uint8_t Data);
 void MCP23017SetInit();
+void CPSReaderCycle();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -170,12 +183,16 @@ int main(void)
   MX_DMA_Init();
   MX_TIM11_Init();
   MX_ADC1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HAL_Delay(100);
   MCP23017SetInit();
 	// Start Timer
 	HAL_TIM_Base_Start_IT(&htim3);
 	HAL_TIM_Base_Start_IT(&htim11);
+	HAL_TIM_Base_Start(&htim2);
+	// Start Input Cap
+	HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, (uint32_t*) &DMAdatabuffer, CAPTURENUM);
 	// Start ADC
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) &ADCin, 1);
   /* USER CODE END 2 */
@@ -363,6 +380,64 @@ static void MX_SPI3_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 9999;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -479,8 +554,12 @@ static void MX_DMA_Init(void)
 
   /* DMA controller clock enable */
   __HAL_RCC_DMA2_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
   /* DMA2_Stream0_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
@@ -995,6 +1074,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		Temp100Sec[TempPos] = ADCin;
 		TempPos++;
 		TempPos %=100;
+		CPSReaderCycle();
 	}
 }
 
@@ -1006,6 +1086,26 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	//（ Unit is °C）= {(V SENSE — V 25 ) / Avg_Slope} + 25
 	Currenttemp = ((ADCin* (3.3 / 4096)- 0.76)/ 0.0025) + 25;
+}
+
+void CPSReaderCycle() {
+	//get DMA Position form number of data
+	uint32_t CapPos = CAPTURENUM -  __HAL_DMA_GET_COUNTER(htim2.hdma[TIM_DMA_ID_CC1]);
+	uint32_t sum = 0 ;
+
+	//calculate diff from all buffer except current dma
+	for(register int i=2 ;i < CAPTURENUM-1;i++)
+	{
+		DiffTime[i]  = DMAdatabuffer[(CapPos+1+i)%CAPTURENUM]-DMAdatabuffer[(CapPos+i)%CAPTURENUM];
+		//Sum all  Diff
+		sum += DiffTime[i];
+	}
+
+	//mean all Diff
+	Meantime = sum / (float)(CAPTURENUM-3);
+
+	//CPS
+	AvgCPS = (60/Meantime)/1000;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
