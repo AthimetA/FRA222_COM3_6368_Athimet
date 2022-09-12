@@ -538,10 +538,10 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 9600;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.BaudRate = 512000;
+  huart2.Init.WordLength = UART_WORDLENGTH_9B;
   huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Parity = UART_PARITY_EVEN;
   huart2.Init.Mode = UART_MODE_TX_RX;
   huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
@@ -1050,6 +1050,8 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd) {
 	if (eepromWriteFlag && hi2c1.State == HAL_I2C_STATE_READY) {
+		static uint8_t data;
+		data = Wdata;
 		HAL_I2C_Mem_Write_IT(&hi2c1, EEPROM_ADDR, MemAd, I2C_MEMADD_SIZE_16BIT,
 				Wdata, len);
 		eepromWriteFlag = 0;
@@ -1057,6 +1059,8 @@ void EEPROMWriteFcn(uint8_t *Wdata, uint16_t len, uint16_t MemAd) {
 }
 void EEPROMReadFcn(uint8_t *Rdata, uint16_t len, uint16_t MemAd) {
 	if (eepromReadFlag && hi2c1.State == HAL_I2C_STATE_READY) {
+		static uint8_t data;
+		data = Rdata;
 		HAL_I2C_Mem_Read_IT(&hi2c1, EEPROM_ADDR, MemAd, I2C_MEMADD_SIZE_16BIT,
 				Rdata, len);
 		eepromReadFlag = 0;
